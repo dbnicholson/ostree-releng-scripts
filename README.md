@@ -54,3 +54,9 @@ Generate statistics on the files in a given commit.
 ## write-ref
 
 Directly change a given ref, with no verification.
+
+## describe-commit
+
+Describe a commit in terms of refs. This is similar to git-describe(1)
+except the description is always in terms of refs that the commit is
+contained in.

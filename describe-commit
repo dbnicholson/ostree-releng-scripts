@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+#
+# Describe a commit in terms of refs
+#
+# Copyright 2017 Dan Nicholson <nicholson@endlessm.com>
+# Licensed under the new-BSD license (http://www.opensource.org/licenses/bsd-license.php)
+
+from __future__ import print_function
+
+from argparse import ArgumentParser
+from collections import defaultdict
+from gi import require_version
+require_version('OSTree', '1.0')
+from gi.repository import GLib, Gio, OSTree
+import sys
+
+def commit_describe(repo, checksum, all_refs=False):
+    refmap = defaultdict(list)
+
+    _, ref_info = repo.list_refs()
+    for ref, rev in ref_info.items():
+        # Walk the ref
+        depth = 0
+        while True:
+            _, commit = repo.load_variant_if_exists(OSTree.ObjectType.COMMIT,
+                                                    rev)
+            if commit is None:
+                if depth == 0:
+                    # The ref file is pointing to a non-existent commit
+                    print('Ref', ref, 'commit', rev, 'does not exist',
+                          file=sys.stderr)
+                    exit(1)
+                else:
+                     # The commit's parent doesn't exist. Either it was
+                     # pruned out or never pulled in the first place.
+                     # Silently move on.
+                    break
+
+            # Add this commit to the map
+            refmap[rev].append((depth, ref + depth * '^'))
+
+            # Get the parent
+            rev = OSTree.commit_get_parent(commit)
+            if rev is None:
+                break
+            depth += 1
+
+    # Sort by depth then ref name
+    matches = sorted(refmap[checksum])
+    if not all_refs:
+        matches = matches[:1]
+    return [ref for depth, ref in matches]
+
+aparser = ArgumentParser(
+    description='Describe a commit in terms of refs'
+)
+aparser.add_argument('--repo', help='repository path')
+aparser.add_argument('--all', action='store_true',
+                     help='show all descriptions')
+aparser.add_argument('commit', help='commit checksum or ref')
+args = aparser.parse_args()
+
+if args.repo is None:
+    repo = OSTree.Repo.new_default()
+else:
+    repo_file = Gio.File.new_for_path(args.repo)
+    repo = OSTree.Repo.new(repo_file)
+repo.open()
+
+_, rev = repo.resolve_rev(args.commit, False)
+matches = commit_describe(repo, rev, all_refs=args.all)
+if len(matches) > 0:
+    print(*matches, sep='\n')
